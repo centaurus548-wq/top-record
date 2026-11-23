@@ -1,0 +1,21 @@
+# Konfigurasi deploy Netlify — Top-Record (Kasir Barbershop)
+#
+# Database di production = Turso (libSQL di cloud), BUKAN file SQLite lokal.
+# Wajib set di Netlify UI (Site configuration → Environment variables):
+#   TURSO_DATABASE_URL  = libsql://toprecord-xxx.turso.io
+#   TURSO_AUTH_TOKEN    = token dari `turso db tokens create`
+#   SESSION_SECRET      = output dari `openssl rand -hex 32` (WAJIB, jangan pakai default)
+#   DATABASE_URL        = file:./db/custom.db  (placeholder build saja)
+
+[build]
+  command = "npx prisma generate && npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Placeholder agar prisma generate lolos saat build (runtime memakai Turso)
+  DATABASE_URL = "file:./db/custom.db"
+
+# Plugin resmi Netlify untuk Next.js (App Router, API routes, middleware)
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

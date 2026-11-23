@@ -1,0 +1,343 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ USERS & ROLES (R6) ============
+
+model User {
+  id       String      @id @default(cuid())
+  name     String
+  username String      @unique
+  pin      String // scrypt:salt:hash (legacy: sha256) — lihat src/lib/auth.ts
+  role     Role
+  barberId String?
+  active   Boolean     @default(true)
+  barber   Barber?     @relation(fields: [barberId], references: [id])
+  createdAt DateTime   @default(now())
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  KASIR
+  KAPSTER
+}
+
+// ============ BARBERS ============
+
+model Barber {
+  id                            String   @id @default(cuid())
+  name                          String
+  nickname                      String   @unique // short code
+  tierId                        String?
+  active                        Boolean  @default(true)
+  commissionTierId              String?
+  commissionOverrideEnabled     Boolean  @default(false)
+  commissionOverrideThresholdHeads Int?
+  commissionOverrideRatePct     Int?
+  tier                          KapsterTier? @relation("tierBarbers", fields: [tierId], references: [id])
+  commissionTier                KapsterTier? @relation("commissionTierBarbers", fields: [commissionTierId], references: [id])
+  attendances                   Attendance[]
+  users                         User[]
+  payrollLines                  PayrollLine[]
+}
+
+model KapsterTier {
+  id        String  @id @default(cuid())
+  name      String
+  sortOrder Int
+  barbers            Barber[] @relation("tierBarbers")
+  commissionBarbers  Barber[] @relation("commissionTierBarbers")
+}
+
+// ============ COMMISSION ENGINE (R1) ============
+
+model CommissionRule {
+  id                String @id @default(cuid())
+  name              String
+  scopeType         RuleScope // DEFAULT | TIER | BARBER | PRODUCT_CATEGORY
+  tierId            String?
+  barberId          String?
+  productCategoryId String?
+  thresholdHeads    Int
+  ratePct           Int
+  active            Boolean @default(true)
+  createdAt         DateTime @default(now())
+}
+
+enum RuleScope {
+  DEFAULT
+  TIER
+  BARBER
+  PRODUCT_CATEGORY
+}
+
+// ============ CATALOG ============
+
+model ProductCategory {
+  id                String  @id @default(cuid())
+  name              String
+  isBarberService   Boolean @default(false)
+  commissionRatePct Int     @default(0)
+  commissionEnabled Boolean @default(false)
+  sortOrder         Int     @default(0)
+  products          Product[]
+}
+
+model ServiceItem {
+  id          String  @id @default(cuid())
+  name        String
+  price       Int
+  durationMin Int     @default(60)
+  active      Boolean @default(true)
+  sortOrder   Int     @default(0)
+}
+
+model Product {
+  id         String  @id @default(cuid())
+  name       String
+  categoryId String
+  price      Int
+  costPrice  Int?
+  stock      Int
+  minStock   Int     @default(5)
+  active     Boolean @default(true)
+  category   ProductCategory @relation(fields: [categoryId], references: [id])
+  adjustments StockAdjustment[]
+}
+
+// ============ TRANSACTIONS (R5/R3) ============
+
+model Transaction {
+  id            String   @id @default(cuid())
+  invoiceNo     String   @unique
+  date          String // 'YYYY-MM-DD' in Asia/Bangkok
+  createdAt     DateTime @default(now())
+  total         Int // items total (excl tip)
+  paymentMethod PaymentMethod
+  tipAmount     Int      @default(0)
+  tipBarberId   String?
+  tipMethod     PaymentMethod?
+  tipStatus     TipStatus @default(NONE)
+  tipClaimedAt  DateTime?
+  status        TxStatus @default(NORMAL)
+  voidReason    String?
+  voidedById    String?
+  voidedAt      DateTime?
+  createdById   String
+  customerName  String?
+  items         TransactionItem[]
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS
+}
+
+enum TipStatus {
+  NONE
+  UNCLAIMED
+  CLAIMED
+}
+
+enum TxStatus {
+  NORMAL
+  VOIDED
+}
+
+model TransactionItem {
+  id            String   @id @default(cuid())
+  transactionId String
+  itemType      ItemType
+  serviceItemId String?
+  productId     String?
+  name          String // snapshot
+  price         Int
+  qty           Int      @default(1)
+  barberId      String?
+  kepalaGroup   Int      @default(1)
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+}
+
+enum ItemType {
+  SERVICE
+  PRODUCT
+}
+
+// ============ ATTENDANCE (R7) ============
+
+model Attendance {
+  id            String   @id @default(cuid())
+  barberId      String
+  date          String
+  clockInAt     DateTime
+  lateMinutes   Int
+  deductedHours Int      @default(0)
+  barber        Barber   @relation(fields: [barberId], references: [id])
+
+  @@unique([barberId, date])
+}
+
+// ============ BOOKING ============
+
+model Booking {
+  id            String       @id @default(cuid())
+  customerName  String
+  whatsapp      String?
+  date          String
+  time          String // 'HH:mm'
+  serviceItemId String
+  barberId      String
+  durationMin   Int
+  status        BookingStatus @default(WAITING)
+  note          String?
+  createdById   String
+  createdAt     DateTime     @default(now())
+}
+
+enum BookingStatus {
+  WAITING
+  CONFIRMED
+  SERVING
+  DONE
+  CANCELLED
+  RESCHEDULED
+}
+
+// ============ EXPENSES (R15/R16) ============
+
+model ExpenseCategory {
+  id        String @id @default(cuid())
+  name      String
+  ownerOnly Boolean @default(false)
+  sortOrder Int    @default(0)
+  expenses  Expense[]
+}
+
+model Expense {
+  id          String @id @default(cuid())
+  date        String
+  categoryId  String
+  amount      Int
+  source      ExpenseSource
+  method      PaymentMethod
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+  category    ExpenseCategory @relation(fields: [categoryId], references: [id])
+}
+
+enum ExpenseSource {
+  KAS_SHOP
+  OWNER_PRIVATE
+}
+
+// ============ CASH CLOSING ============
+
+model CashDay {
+  id           String   @id @default(cuid())
+  date         String   @unique
+  openingCash  Int
+  status       CashDayStatus @default(OPEN)
+  closedById   String?
+  closedAt     DateTime?
+  countedCash  Int?
+  expectedCash Int?
+  difference   Int?
+  differenceNote String?
+  reopenedById String?
+  reopenedAt   DateTime?
+  reopenReason String?
+}
+
+enum CashDayStatus {
+  OPEN
+  LOCKED
+}
+
+// ============ AUDIT & SETTINGS ============
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  at       DateTime @default(now())
+  userId   String
+  action   String
+  entity   String
+  entityId String?
+  detail   String?
+}
+
+model Setting {
+  key   String @id
+  value String
+}
+
+model StockAdjustment {
+  id          String   @id @default(cuid())
+  productId   String
+  delta       Int
+  reason      String
+  createdById String
+  createdAt   DateTime @default(now())
+  product     Product  @relation(fields: [productId], references: [id])
+}
+
+// ============ PAYROLL (Phase 2) ============
+
+model PayrollPeriod {
+  id        String       @id @default(cuid())
+  name      String
+  type      PayrollType // WEEKLY | MONTHLY | CUSTOM
+  startDate String // 'YYYY-MM-DD'
+  endDate   String // 'YYYY-MM-DD'
+  status    PayrollStatus @default(OPEN)
+  createdById String
+  createdAt DateTime     @default(now())
+  closedById  String?
+  closedAt    DateTime?
+  reopenedById String?
+  reopenedAt  DateTime?
+  lines      PayrollLine[]
+}
+
+enum PayrollType {
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+enum PayrollStatus {
+  OPEN
+  CLOSED
+}
+
+model PayrollLine {
+  id             String   @id @default(cuid())
+  periodId       String
+  barberId       String
+  daysWorked     Int
+  lateCount      Int
+  attendancePay  Int // gaji kehadiran (net of deductions)
+  komisi         Int
+  tip            Int // tip via kas (UNCLAIMED + CLAIMED)
+  total          Int // attendancePay + komisi + tip
+  attendanceDetail Json? // per-day snapshot [{date, deductedHours, lateMinutes, dailyPay}]
+  status         PayLineStatus @default(UNPAID)
+  paidAt         DateTime?
+  paidById       String?
+  period         PayrollPeriod @relation(fields: [periodId], references: [id])
+  barber         Barber        @relation(fields: [barberId], references: [id])
+
+  @@unique([periodId, barberId])
+}
+
+enum PayLineStatus {
+  UNPAID
+  PAID
+}
