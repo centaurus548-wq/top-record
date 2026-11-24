@@ -1,12 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
   typescript: {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
-  // Security headers (Revisi 8): proteksi dasar untuk deploy publik
+  // Security headers: proteksi dasar untuk deploy publik
   async headers() {
     return [
       {
